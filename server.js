@@ -7,7 +7,7 @@ const cors = require('cors');
 
 const app = express();
 
-// IMPORTANT: Render (and other hosts) use process.env.PORT
+// Render (and other hosts) use process.env.PORT
 const PORT = process.env.PORT || 3000;
 const JWT_SECRET = 'super-secret-key-change-this'; // change in production
 
@@ -65,7 +65,8 @@ let participations = []; // { id, userId, gameId, status, createdAt }
     mobile: '9999999999',
     passwordHash: hash,
     role: 'admin',
-    authProvider: 'local'
+    authProvider: 'local',
+    createdAt: new Date().toISOString()
   });
 })();
 
@@ -129,7 +130,8 @@ app.post('/api/auth/signup', async (req, res) => {
     mobile,
     passwordHash: hash,
     role: 'user',
-    authProvider: 'local'
+    authProvider: 'local',
+    createdAt: new Date().toISOString()
   };
   users.push(newUser);
 
@@ -158,9 +160,48 @@ app.post('/api/auth/login', async (req, res) => {
   res.json({ token });
 });
 
-// Current user info
+// Current user (JWT payload only)
 app.get('/api/auth/me', authMiddleware, (req, res) => {
   res.json({ user: req.user });
+});
+
+// ---- User Profile Routes ----
+
+// Get full profile of current user
+app.get('/api/users/me', authMiddleware, (req, res) => {
+  const user = users.find((u) => u.id === req.user.id);
+  if (!user) return res.status(404).json({ message: 'User not found' });
+
+  const safeUser = {
+    id: user.id,
+    name: user.name,
+    email: user.email,
+    mobile: user.mobile,
+    role: user.role,
+    createdAt: user.createdAt
+  };
+  res.json({ user: safeUser });
+});
+
+// Update profile (name, mobile)
+app.patch('/api/users/me', authMiddleware, (req, res) => {
+  const user = users.find((u) => u.id === req.user.id);
+  if (!user) return res.status(404).json({ message: 'User not found' });
+
+  const { name, mobile } = req.body;
+
+  if (name && typeof name === 'string') user.name = name.trim();
+  if (mobile && typeof mobile === 'string') user.mobile = mobile.trim();
+
+  const safeUser = {
+    id: user.id,
+    name: user.name,
+    email: user.email,
+    mobile: user.mobile,
+    role: user.role,
+    createdAt: user.createdAt
+  };
+  res.json({ user: safeUser });
 });
 
 // ---- Games Routes ----
@@ -226,15 +267,20 @@ app.delete('/api/participation/:id', authMiddleware, (req, res) => {
 
 // ---- Admin Routes ----
 
-// List all users (safe data only)
+// List all users with basic stats
 app.get('/api/admin/users', authMiddleware, adminMiddleware, (req, res) => {
-  const safeUsers = users.map((u) => ({
-    id: u.id,
-    name: u.name,
-    email: u.email,
-    mobile: u.mobile,
-    role: u.role
-  }));
+  const safeUsers = users.map((u) => {
+    const userParts = participations.filter((p) => p.userId === u.id);
+    return {
+      id: u.id,
+      name: u.name,
+      email: u.email,
+      mobile: u.mobile,
+      role: u.role,
+      createdAt: u.createdAt,
+      participationsCount: userParts.length
+    };
+  });
   res.json({ users: safeUsers });
 });
 
