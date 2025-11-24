@@ -61,6 +61,9 @@ let participations = []; // { id, userId, gameId, status, createdAt }
   users.push({
     id: 'u1',
     name: 'Admin User',
+    rollNumber: 'ADMIN-000',
+    year: 'N/A',
+    stream: 'Admin',
     email: 'admin@techfest.com',
     mobile: '9999999999',
     passwordHash: hash,
@@ -112,20 +115,32 @@ function adminMiddleware(req, res, next) {
 
 // Sign up
 app.post('/api/auth/signup', async (req, res) => {
-  const { name, email, mobile, password } = req.body;
-  if (!name || !email || !mobile || !password) {
-    return res.status(400).json({ message: 'Missing fields' });
+  const { name, rollNumber, year, stream, email, mobile, password } = req.body;
+
+  if (!name || !rollNumber || !year || !stream || !email || !mobile || !password) {
+    return res.status(400).json({ message: 'All fields are required' });
   }
 
-  const existing = users.find((u) => u.email === email || u.mobile === mobile);
+  // Ensure uniqueness for rollNumber, email, mobile
+  const existing = users.find(
+    (u) =>
+      u.email.toLowerCase() === email.toLowerCase() ||
+      u.mobile === mobile ||
+      (u.rollNumber && u.rollNumber.toLowerCase() === rollNumber.toLowerCase())
+  );
   if (existing) {
-    return res.status(400).json({ message: 'Email or mobile already registered' });
+    return res
+      .status(400)
+      .json({ message: 'A user with this email, mobile, or roll number already exists' });
   }
 
   const hash = await bcrypt.hash(password, 10);
   const newUser = {
     id: 'u' + (users.length + 1),
     name,
+    rollNumber,
+    year,
+    stream,
     email,
     mobile,
     passwordHash: hash,
@@ -146,7 +161,10 @@ app.post('/api/auth/login', async (req, res) => {
     return res.status(400).json({ message: 'Missing fields' });
   }
 
-  const user = users.find((u) => u.email === identifier || u.mobile === identifier);
+  const lowerId = identifier.toLowerCase();
+  const user = users.find(
+    (u) => u.email.toLowerCase() === lowerId || u.mobile === identifier || u.rollNumber === identifier
+  );
   if (!user) {
     return res.status(400).json({ message: 'User not found' });
   }
@@ -175,6 +193,9 @@ app.get('/api/users/me', authMiddleware, (req, res) => {
   const safeUser = {
     id: user.id,
     name: user.name,
+    rollNumber: user.rollNumber,
+    year: user.year,
+    stream: user.stream,
     email: user.email,
     mobile: user.mobile,
     role: user.role,
@@ -183,19 +204,24 @@ app.get('/api/users/me', authMiddleware, (req, res) => {
   res.json({ user: safeUser });
 });
 
-// Update profile (name, mobile)
+// Update profile (name, mobile, year, stream)
 app.patch('/api/users/me', authMiddleware, (req, res) => {
   const user = users.find((u) => u.id === req.user.id);
   if (!user) return res.status(404).json({ message: 'User not found' });
 
-  const { name, mobile } = req.body;
+  const { name, mobile, year, stream } = req.body;
 
   if (name && typeof name === 'string') user.name = name.trim();
   if (mobile && typeof mobile === 'string') user.mobile = mobile.trim();
+  if (year && typeof year === 'string') user.year = year.trim();
+  if (stream && typeof stream === 'string') user.stream = stream.trim();
 
   const safeUser = {
     id: user.id,
     name: user.name,
+    rollNumber: user.rollNumber,
+    year: user.year,
+    stream: user.stream,
     email: user.email,
     mobile: user.mobile,
     role: user.role,
@@ -267,13 +293,16 @@ app.delete('/api/participation/:id', authMiddleware, (req, res) => {
 
 // ---- Admin Routes ----
 
-// List all users with basic stats
+// List all users with details + stats
 app.get('/api/admin/users', authMiddleware, adminMiddleware, (req, res) => {
   const safeUsers = users.map((u) => {
     const userParts = participations.filter((p) => p.userId === u.id);
     return {
       id: u.id,
       name: u.name,
+      rollNumber: u.rollNumber,
+      year: u.year,
+      stream: u.stream,
       email: u.email,
       mobile: u.mobile,
       role: u.role,
@@ -297,6 +326,9 @@ app.get('/api/admin/participations', authMiddleware, adminMiddleware, (req, res)
       userName: user.name || '',
       userEmail: user.email || '',
       userMobile: user.mobile || '',
+      userRoll: user.rollNumber || '',
+      userYear: user.year || '',
+      userStream: user.stream || '',
       status: p.status,
       createdAt: p.createdAt
     };
@@ -304,7 +336,7 @@ app.get('/api/admin/participations', authMiddleware, adminMiddleware, (req, res)
   res.json({ participations: enriched });
 });
 
-// Export CSV (for admin)
+// Export participations CSV (kept for convenience)
 app.get('/api/admin/export', (req, res) => {
   const { token, gameId } = req.query;
   if (!token) return res.status(401).send('Token required');
@@ -323,7 +355,17 @@ app.get('/api/admin/export', (req, res) => {
   let rows = participations;
   if (gameId) rows = rows.filter((p) => p.gameId === gameId);
 
-  const header = ['Game', 'User', 'Email', 'Mobile', 'Status', 'RegisteredAt'];
+  const header = [
+    'Game',
+    'User',
+    'Email',
+    'Mobile',
+    'RollNumber',
+    'Year',
+    'Stream',
+    'Status',
+    'RegisteredAt'
+  ];
   const csv = [
     header.join(','),
     ...rows.map((p) => {
@@ -334,6 +376,9 @@ app.get('/api/admin/export', (req, res) => {
         user.name || '',
         user.email || '',
         user.mobile || '',
+        user.rollNumber || '',
+        user.year || '',
+        user.stream || '',
         p.status,
         p.createdAt
       ]
@@ -344,6 +389,59 @@ app.get('/api/admin/export', (req, res) => {
 
   res.setHeader('Content-Type', 'text/csv');
   res.setHeader('Content-Disposition', 'attachment; filename="participations.csv"');
+  res.send(csv);
+});
+
+// Export USERS CSV (what you asked for)
+app.get('/api/admin/users/export', (req, res) => {
+  const { token } = req.query;
+  if (!token) return res.status(401).send('Token required');
+
+  let decoded;
+  try {
+    decoded = jwt.verify(token, JWT_SECRET);
+  } catch (e) {
+    return res.status(401).send('Invalid token');
+  }
+
+  if (!decoded || decoded.role !== 'admin') {
+    return res.status(403).send('Admin only');
+  }
+
+  const header = [
+    'Name',
+    'RollNumber',
+    'Year',
+    'Stream',
+    'Email',
+    'Mobile',
+    'Role',
+    'JoinedAt',
+    'RegistrationsCount'
+  ];
+
+  const csv = [
+    header.join(','),
+    ...users.map((u) => {
+      const userParts = participations.filter((p) => p.userId === u.id);
+      return [
+        u.name || '',
+        u.rollNumber || '',
+        u.year || '',
+        u.stream || '',
+        u.email || '',
+        u.mobile || '',
+        u.role || '',
+        u.createdAt || '',
+        userParts.length
+      ]
+        .map((v) => `"${String(v).replace(/"/g, '""')}"`)
+        .join(',');
+    })
+  ].join('\n');
+
+  res.setHeader('Content-Type', 'text/csv');
+  res.setHeader('Content-Disposition', 'attachment; filename="users.csv"');
   res.send(csv);
 });
 
