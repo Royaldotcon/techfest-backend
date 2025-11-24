@@ -113,25 +113,45 @@ function adminMiddleware(req, res, next) {
 
 // ---- Auth Routes ----
 
-// Sign up
+// Sign up (RELAXED validation)
 app.post('/api/auth/signup', async (req, res) => {
-  const { name, rollNumber, year, stream, email, mobile, password } = req.body;
+  let { name, rollNumber, year, stream, email, mobile, password } = req.body || {};
 
-  if (!name || !rollNumber || !year || !stream || !email || !mobile || !password) {
-    return res.status(400).json({ message: 'All fields are required' });
-  }
+  // Normalize / trim
+  name = (name || '').trim();
+  rollNumber = (rollNumber || '').trim();
+  year = (year || '').trim();
+  stream = (stream || '').trim();
+  email = (email || '').trim();
+  mobile = (mobile || '').trim();
 
-  // Ensure uniqueness for rollNumber, email, mobile
-  const existing = users.find(
-    (u) =>
-      u.email.toLowerCase() === email.toLowerCase() ||
-      u.mobile === mobile ||
-      (u.rollNumber && u.rollNumber.toLowerCase() === rollNumber.toLowerCase())
-  );
-  if (existing) {
+  // Only these are STRICTLY required on backend
+  if (!name || !email || !password) {
     return res
       .status(400)
-      .json({ message: 'A user with this email, mobile, or roll number already exists' });
+      .json({ message: 'Name, email and password are required' });
+  }
+
+  const lowerEmail = email.toLowerCase();
+
+  // Check duplicates only when values are present
+  const existing = users.find((u) => {
+    if (u.email && u.email.toLowerCase() === lowerEmail) return true;
+    if (mobile && u.mobile === mobile) return true;
+    if (
+      rollNumber &&
+      u.rollNumber &&
+      u.rollNumber.toLowerCase() === rollNumber.toLowerCase()
+    ) {
+      return true;
+    }
+    return false;
+  });
+
+  if (existing) {
+    return res.status(400).json({
+      message: 'A user with this email, mobile, or roll number already exists'
+    });
   }
 
   const hash = await bcrypt.hash(password, 10);
@@ -148,13 +168,14 @@ app.post('/api/auth/signup', async (req, res) => {
     authProvider: 'local',
     createdAt: new Date().toISOString()
   };
+
   users.push(newUser);
 
   const token = createToken(newUser);
   res.json({ token });
 });
 
-// Login with email or mobile
+// Login with email or mobile or roll number
 app.post('/api/auth/login', async (req, res) => {
   const { identifier, password } = req.body;
   if (!identifier || !password) {
@@ -163,7 +184,10 @@ app.post('/api/auth/login', async (req, res) => {
 
   const lowerId = identifier.toLowerCase();
   const user = users.find(
-    (u) => u.email.toLowerCase() === lowerId || u.mobile === identifier || u.rollNumber === identifier
+    (u) =>
+      (u.email && u.email.toLowerCase() === lowerId) ||
+      u.mobile === identifier ||
+      u.rollNumber === identifier
   );
   if (!user) {
     return res.status(400).json({ message: 'User not found' });
@@ -336,7 +360,7 @@ app.get('/api/admin/participations', authMiddleware, adminMiddleware, (req, res)
   res.json({ participations: enriched });
 });
 
-// Export participations CSV (kept for convenience)
+// Export participations CSV
 app.get('/api/admin/export', (req, res) => {
   const { token, gameId } = req.query;
   if (!token) return res.status(401).send('Token required');
@@ -392,7 +416,7 @@ app.get('/api/admin/export', (req, res) => {
   res.send(csv);
 });
 
-// Export USERS CSV (what you asked for)
+// Export USERS CSV
 app.get('/api/admin/users/export', (req, res) => {
   const { token } = req.query;
   if (!token) return res.status(401).send('Token required');
@@ -441,7 +465,7 @@ app.get('/api/admin/users/export', (req, res) => {
   ].join('\n');
 
   res.setHeader('Content-Type', 'text/csv');
-  res.setHeader('Content-Disposition', 'attachment; filename="users.csv"');
+  res.setHeader('Content-Disposition', 'attachment; filename="users.csv"`);
   res.send(csv);
 });
 
