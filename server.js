@@ -187,7 +187,7 @@ app.post('/api/auth/login', async (req, res) => {
     (u) =>
       (u.email && u.email.toLowerCase() === lowerId) ||
       u.mobile === identifier ||
-      u.rollNumber === identifier
+      (u.rollNumber && u.rollNumber.toLowerCase() === lowerId)
   );
   if (!user) {
     return res.status(400).json({ message: 'User not found' });
@@ -465,7 +465,7 @@ app.get('/api/admin/users/export', (req, res) => {
   ].join('\n');
 
   res.setHeader('Content-Type', 'text/csv');
-  res.setHeader('Content-Disposition', 'attachment; filename="users.csv"`);
+  res.setHeader('Content-Disposition', 'attachment; filename="users.csv"');
   res.send(csv);
 });
 
